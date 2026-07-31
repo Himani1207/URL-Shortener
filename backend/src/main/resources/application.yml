@@ -1,0 +1,120 @@
+#
+# Base configuration.
+#
+# Every value is overridable by an environment variable so the same build runs both
+# straight from the IDE and inside Docker Compose, where the database and Redis
+# hostnames differ. The defaults after ':' are the local-development values.
+#
+spring:
+  application:
+    name: url-shortener
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    # SPRING_DATASOURCE_URL still wins when set, so Docker Compose and existing
+    # setups are unaffected. Otherwise the URL is composed from its parts, which
+    # is what managed hosts provide — Render exposes host, port and database as
+    # separate values and gives no way to concatenate them into a JDBC string.
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:url_shortner}}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:15062006}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:10}
+      minimum-idle: ${DB_POOL_MIN:2}
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    show-sql: ${JPA_SHOW_SQL:true}
+    open-in-view: false          # avoid holding a DB connection for the whole request
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 25
+
+  # NOTE: this block previously lived under `jwt:` by mistake, which meant Spring
+  # never read it and Redis silently fell back to localhost defaults.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      connect-timeout: 2000ms
+
+  cache:
+    type: ${CACHE_TYPE:redis}
+
+  jackson:
+    serialization:
+      # ISO-8601 strings rather than epoch arrays, so the React client can hand
+      # dates straight to Intl.DateTimeFormat without a conversion step.
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+server:
+  port: ${PORT:8080}
+  # Lets ClientIpResolver see the real client address when the app sits behind a
+  # reverse proxy rather than being hit directly.
+  forward-headers-strategy: framework
+
+jwt:
+  # Base64-encoded HMAC-SHA256 key. MUST be overridden in production.
+  secret: ${JWT_SECRET:1234567890123456789012345678901234567890123456789012345678901234}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+app:
+  # Public origin used to build short links and encode QR codes.
+  base-url: ${APP_BASE_URL:http://localhost:8080}
+  # Where the browser is sent for pages the API cannot render itself: the
+  # password prompt and the link-unavailable page. Same origin as the UI, which
+  # is only the same host as the API in local development.
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  # Comma-separated list of origins allowed to call the API from a browser.
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+  cache:
+    # TTL for the shortCode -> URL cache entries.
+    url-ttl-minutes: ${CACHE_URL_TTL_MINUTES:60}
+    qr-ttl-minutes: ${CACHE_QR_TTL_MINUTES:1440}
+  shortcode:
+    length: ${SHORTCODE_LENGTH:7}
+    max-generation-attempts: 5
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    redis:
+      # Must be turned off wherever Redis is not provisioned. The indicator is
+      # part of the aggregate /actuator/health result, so an unreachable Redis
+      # makes the endpoint report DOWN and a platform health check kill an
+      # otherwise healthy container — even though caching is a soft dependency
+      # the app is designed to run without.
+      enabled: ${HEALTH_REDIS_ENABLED:true}
+
+logging:
+  level:
+    root: INFO
+    com.example.url_shortner: ${LOG_LEVEL_APP:DEBUG}
+    org.springframework.cache: ${LOG_LEVEL_CACHE:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

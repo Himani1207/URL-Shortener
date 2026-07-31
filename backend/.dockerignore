@@ -1,0 +1,59 @@
+# Everything here is excluded from the build context.
+#
+# Keeping the context small matters twice over: the whole context is shipped to the
+# Docker daemon on every build, and anything that slips in can end up baked into an
+# image layer. Local .env files are the obvious hazard.
+
+# Build output - the image builds its own
+target/
+build/
+out/
+*.jar
+*.war
+
+# Version control
+.git
+.gitignore
+.gitattributes
+.github/
+
+# IDE and editor state
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+*.swp
+*.swo
+
+# Secrets and local overrides - must never reach an image layer
+.env
+.env.*
+!.env.example
+**/application-local.yml
+**/application-local.yaml
+**/application-local.properties
+*.pem
+*.key
+*.p12
+
+# Logs and OS clutter
+logs/
+*.log
+.DS_Store
+Thumbs.db
+
+# Docs and compose files - not needed to build the jar
+README.md
+HELP.md
+docs/
+docker-compose*.yml
+Dockerfile*
+
+# The frontend has its own build pipeline
+frontend/
+node_modules/

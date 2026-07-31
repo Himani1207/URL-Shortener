@@ -1,0 +1,117 @@
+#
+# Local development stack: API + PostgreSQL + Redis.
+#
+#   docker compose up --build
+#
+# Fixes over the previous version:
+#   * The app had no environment configuration at all, so it started with the
+#     defaults baked into application.yml and tried to reach PostgreSQL on
+#     localhost - which inside a container is the container itself. It could never
+#     have connected. Service names are the correct hostnames on a compose network.
+#   * The database name disagreed between compose (url_shortener) and
+#     application.yml (url_shortner).
+#   * depends_on without a condition only waits for the container to be *created*,
+#     not to be ready. The app raced Postgres on every cold start. Healthchecks
+#     make the dependency real.
+#   * Postgres had no volume, so every `docker compose down` silently destroyed
+#     all data.
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: urlshortener-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-url_shortner}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      # Exposed so you can still attach a local client such as DBeaver or psql.
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-url_shortner}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - urlshortener
+
+  redis:
+    image: redis:7-alpine
+    container_name: urlshortener-redis
+    restart: unless-stopped
+    # Bounded memory with LRU eviction: this is a cache, and it must never grow
+    # until it takes the host down. allkeys-lru evicts the coldest entries once
+    # the limit is reached, which is exactly the desired behaviour here.
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - urlshortener
+
+  app:
+    build:
+      # The compose file orchestrates the whole stack and so lives at the repo
+      # root, but the image is the backend alone — hence a context of ./backend
+      # rather than '.', which would ship the frontend into the build as well.
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: urlshortener-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+
+      # 'postgres' and 'redis' are the service names, resolved by compose's internal
+      # DNS. localhost would refer to the app container itself.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-url_shortner}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      JPA_DDL_AUTO: update
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      JWT_SECRET: ${JWT_SECRET:-1234567890123456789012345678901234567890123456789012345678901234}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
+    ports:
+      - '${APP_PORT:-8080}:8080'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8080/actuator/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # Generous: a cold JVM plus Hibernate schema validation takes a while.
+      start_period: 60s
+    networks:
+      - urlshortener
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  urlshortener:
+    driver: bridge

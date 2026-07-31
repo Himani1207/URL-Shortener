@@ -1,0 +1,116 @@
+# Render Blueprint — API + PostgreSQL.
+#
+# Create this stack with Render → New → Blueprint, pointed at this repository.
+# Render reads this file from the repo root and provisions everything below.
+#
+# The frontend is NOT here: it deploys to Vercel from frontend/vercel.json.
+#
+# ---------------------------------------------------------------------------
+# Values you must fill in yourself
+# ---------------------------------------------------------------------------
+# Anything marked `sync: false` is deliberately left blank — Render prompts for
+# it on first deploy and stores it encrypted. Two of them are chicken-and-egg:
+# the service's own URL is not known until it exists, so deploy once, copy the
+# assigned .onrender.com address, then set them and redeploy.
+#
+#   JWT_SECRET             generate with: openssl rand -base64 64
+#   APP_BASE_URL           https://<your-api>.onrender.com
+#   FRONTEND_URL           https://<your-app>.vercel.app
+#   CORS_ALLOWED_ORIGINS   https://<your-app>.vercel.app
+#
+# ---------------------------------------------------------------------------
+# Free tier, honestly
+# ---------------------------------------------------------------------------
+#   * The web service sleeps after 15 minutes idle. The next request pays a
+#     cold start, which for a JVM is roughly 40-60 seconds. Every short link
+#     goes through this service, so a link clicked after a quiet period is slow
+#     to redirect. That is a property of the plan, not of the code.
+#   * Free PostgreSQL expires after 30 days and is then deleted. Take the data
+#     seriously only on a paid plan.
+#   * There is no Redis here. Caching falls back to an in-memory map, which is
+#     correct but per-instance and lost on restart — see CACHE_TYPE below.
+
+services:
+  - type: web
+    name: linkly-api
+    runtime: docker
+    plan: free
+    region: oregon
+
+    # The Dockerfile lives in backend/ and copies pom.xml and src/ relative to
+    # its own directory, so the build context is backend/, not the repo root.
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+
+    # Spring Boot exposes this once management.endpoints includes health.
+    # Render restarts the service if it stops returning 200.
+    healthCheckPath: /actuator/health
+
+    envVars:
+      # --- Database: wired automatically from the instance defined below -----
+      - key: DB_HOST
+        fromDatabase:
+          name: linkly-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: linkly-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: linkly-db
+          property: database
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: linkly-db
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: linkly-db
+          property: password
+
+      # --- Schema -----------------------------------------------------------
+      # `update` lets Hibernate create the schema on first boot, which is what
+      # makes a fresh database work with no migration step. It will not drop or
+      # narrow a column, so it cannot destroy data — but it also cannot perform
+      # a real migration. Move to Flyway before this holds anything you care
+      # about losing.
+      - key: JPA_DDL_AUTO
+        value: update
+      - key: JPA_SHOW_SQL
+        value: "false"
+
+      # --- Caching ----------------------------------------------------------
+      # No Redis on the free tier. `simple` uses an in-memory ConcurrentMap:
+      # correct behaviour, but not shared between instances and empty after
+      # every restart. The Redis health indicator must be off to match, or the
+      # health check fails on a dependency that is not there.
+      # To use Redis later: add a Key Value service, set CACHE_TYPE=redis,
+      # HEALTH_REDIS_ENABLED=true, and REDIS_HOST/REDIS_PORT from it.
+      - key: CACHE_TYPE
+        value: simple
+      - key: HEALTH_REDIS_ENABLED
+        value: "false"
+
+      # --- Logging ----------------------------------------------------------
+      - key: LOG_LEVEL_APP
+        value: INFO
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+
+      # --- Fill these in on the dashboard -----------------------------------
+      # Never commit real values for these.
+      - key: JWT_SECRET
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+databases:
+  - name: linkly-db
+    plan: free
+    databaseName: url_shortner
+    user: url_shortner

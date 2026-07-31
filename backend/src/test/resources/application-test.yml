@@ -1,0 +1,60 @@
+#
+# Test profile.
+#
+# Goals: no external services, deterministic behaviour, fast startup.
+#
+spring:
+  # H2 in PostgreSQL compatibility mode so the JPQL and schema exercised here stay
+  # close to production without needing a live Postgres. Testcontainers would be
+  # closer still, but it needs a Docker daemon, which not every CI runner has.
+  datasource:
+    url: jdbc:h2:mem:urlshortener;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  # Caching off: these tests assert business behaviour, and a cache sitting in
+  # front of the repositories would mask a broken query behind a stale hit.
+  # UrlCacheService still runs - its @Cacheable annotations simply become no-ops -
+  # so the read-through path is still exercised end to end.
+  cache:
+    type: none
+
+  # No Redis server in tests. Excluded rather than pointed at a fake, so a
+  # connection attempt cannot fail the context.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+jwt:
+  # Fixed 64-byte Base64 key so token assertions are reproducible.
+  secret: dGVzdC1zZWNyZXQta2V5LWZvci11cmwtc2hvcnRlbmVyLWludGVncmF0aW9uLXRlc3Rz
+  expiration: 3600000
+
+app:
+  base-url: http://localhost:8080
+  frontend-url: http://localhost:5173
+  cors:
+    allowed-origins: http://localhost:5173
+  shortcode:
+    length: 7
+    max-generation-attempts: 5
+  # The hourly expiry sweep is disabled so it cannot fire mid-test and deactivate
+  # a fixture an assertion depends on.
+  scheduling:
+    enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.example.url_shortner: INFO

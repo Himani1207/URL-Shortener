@@ -1,0 +1,57 @@
+# Repo-wide ignores.
+#
+# The backend and frontend each keep their own .gitignore for tool-specific
+# artefacts whose paths are anchored to that directory — backend/.gitignore has a
+# rule for .mvn/wrapper, which would stop matching if it were hoisted up here.
+# This file covers what is shared, or what would otherwise be missed at the root.
+
+# ---------------------------------------------------------------------------
+# Secrets — the important part
+# ---------------------------------------------------------------------------
+# Real credentials live in .env, which is never committed. .env.example is the
+# committed template and must only ever contain placeholders.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+target/
+build/
+dist/
+*.jar
+*.war
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+
+# ---------------------------------------------------------------------------
+# Logs and caches
+# ---------------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-error.log*
+.vite/
+.cache/
+coverage/
+
+# ---------------------------------------------------------------------------
+# Deployment
+# ---------------------------------------------------------------------------
+.vercel/
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
