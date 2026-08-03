@@ -69,7 +69,12 @@ jwt:
 
 app:
   # Public origin used to build short links and encode QR codes.
-  base-url: ${APP_BASE_URL:http://localhost:8080}
+  #
+  # Empty by default rather than localhost. UrlMapper then derives the origin from
+  # the incoming request, so a deployment that forgets APP_BASE_URL still hands out
+  # working links instead of ones pointing at the visitor's own machine. Set it
+  # explicitly in production — it is authoritative when present.
+  base-url: ${APP_BASE_URL:}
   # Where the browser is sent for pages the API cannot render itself: the
   # password prompt and the link-unavailable page. Same origin as the UI, which
   # is only the same host as the API in local development.

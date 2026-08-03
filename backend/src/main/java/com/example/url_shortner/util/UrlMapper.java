@@ -6,8 +6,10 @@ import com.example.url_shortner.dto.response.UrlResponse;
 import com.example.url_shortner.entity.ClickAnalytics;
 import com.example.url_shortner.entity.Url;
 import com.example.url_shortner.repository.projection.LabelCount;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,14 +33,62 @@ import java.util.List;
  * dependency and hide logic that reads perfectly clearly as plain Java.
  */
 @Component
+@Slf4j
 public class UrlMapper {
 
-    private final String baseUrl;
+    private static final String LOCAL_FALLBACK = "http://localhost:8080";
 
-    public UrlMapper(@Value("${app.base-url:http://localhost:8080}") String baseUrl) {
-        this.baseUrl = baseUrl.endsWith("/")
-                ? baseUrl.substring(0, baseUrl.length() - 1)
-                : baseUrl;
+    /** Configured public origin, or {@code null} when {@code app.base-url} is unset. */
+    private final String configuredBaseUrl;
+
+    public UrlMapper(@Value("${app.base-url:}") String baseUrl) {
+        String trimmed = baseUrl == null ? "" : baseUrl.trim();
+
+        if (trimmed.isEmpty()) {
+            this.configuredBaseUrl = null;
+            log.warn("app.base-url is not set - short links will be built from the "
+                    + "incoming request. Set APP_BASE_URL to the public origin in any "
+                    + "environment sitting behind a proxy or load balancer.");
+        } else {
+            this.configuredBaseUrl = trimmed.endsWith("/")
+                    ? trimmed.substring(0, trimmed.length() - 1)
+                    : trimmed;
+        }
+    }
+
+    /**
+     * The origin that short links are built from.
+     *
+     * <p><b>Why this is not simply a constructor value with a localhost default.</b>
+     * It used to be, and the default was silently wrong in exactly the place it
+     * mattered: deployed with {@code APP_BASE_URL} unset, every link came back as
+     * {@code http://localhost:8080/<code>}. Nothing failed — the link was stored
+     * correctly and resolved correctly on the real host — but the address handed to
+     * the user pointed at their own machine, so clicking it produced "this link does
+     * not exist" from whatever happened to be running locally. A wrong answer that
+     * looks like a working one is the worst kind.
+     *
+     * <p>Explicit configuration still wins and is what production should use. When it
+     * is absent the origin is derived from the current request, which is correct
+     * behind Render's proxy because {@code server.forward-headers-strategy: framework}
+     * makes Spring honour the {@code X-Forwarded-*} headers. Outside a request — the
+     * expiration scheduler, tests — there is nothing to derive from, so the localhost
+     * fallback remains.
+     */
+    private String baseUrl() {
+        if (configuredBaseUrl != null) return configuredBaseUrl;
+
+        try {
+            String derived = ServletUriComponentsBuilder.fromCurrentContextPath()
+                    .build()
+                    .toUriString();
+            return derived.endsWith("/")
+                    ? derived.substring(0, derived.length() - 1)
+                    : derived;
+        } catch (IllegalStateException ex) {
+            // No request bound to this thread.
+            return LOCAL_FALLBACK;
+        }
     }
 
     /** Maps a link entity, deriving {@code shortUrl} and {@code expired}. */
@@ -93,6 +143,6 @@ public class UrlMapper {
 
     /** @return the fully qualified short link for a code. */
     public String buildShortUrl(String shortCode) {
-        return baseUrl + "/" + shortCode;
+        return baseUrl() + "/" + shortCode;
     }
 }

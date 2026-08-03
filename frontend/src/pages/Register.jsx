@@ -102,7 +102,7 @@ export default function Register() {
           label="Name"
           autoComplete="name"
           required
-          placeholder="Kunal Suthar"
+          placeholder="Your name"
           value={name}
           onChange={(event) => setName(event.target.value)}
           error={fieldErrors.name}
